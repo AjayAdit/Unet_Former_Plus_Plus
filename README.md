@@ -1,6 +1,10 @@
 # UAVid UNetFormer Baseline (GeoSeg)
 
-This repo contains our UNetFormer baseline on the UAVid-v1 dataset using the GeoSeg framework.
+This repo contains our UNetFormer baseline on the UAVid-v1 dataset using the GeoSeg framework. 
+
+Clone this repo and follow the steps
+git clone git@github.com:AjayAdit/Unet_Former-.git 
+cd uavid-unetformer-baseline
 
 ## Setup
 

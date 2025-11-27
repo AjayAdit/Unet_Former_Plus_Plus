@@ -2,8 +2,8 @@
 set -e
 
 # Adjust DATA_ROOT if your teammates store UAVid elsewhere
-DATA_ROOT="/extra_space/Downloads/Datasets for DL/D1/dataverse_files/UAVid-v1"
-PATCH_ROOT="/extra_space/UAVid_patches"
+DATA_ROOT="/home/ajagan/Unetformer++/Unet_Former_Plus_Plus/dataset_full"
+PATCH_ROOT="/home/ajagan/Unetformer++/Unet_Former_Plus_Plus/dataset_full/UAVid_patches"
 
 conda activate airs
 

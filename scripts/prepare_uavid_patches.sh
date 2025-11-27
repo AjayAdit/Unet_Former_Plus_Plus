@@ -1,10 +1,9 @@
+# scripts/prepare_uavid_patches.sh
+
 #!/usr/bin/env bash
 set -e
 
-# Where the UAVid dataset is (on the cluster)
 DATA_ROOT="/home/ajagan/Unetformer++/Unet_Former_Plus_Plus/dataset_full/UAVid-v1"
-
-# Where you want the patches to be stored
 PATCH_ROOT="/home/ajagan/Unetformer++/Unet_Former_Plus_Plus/dataset_full/UAVid_patches"
 
 mkdir -p "${PATCH_ROOT}/train/images" "${PATCH_ROOT}/train/masks" \

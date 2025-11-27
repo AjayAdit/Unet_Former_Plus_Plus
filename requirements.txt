@@ -55,17 +55,6 @@ mpmath==1.3.0
 multidict==6.1.0
 networkx==3.0
 numpy==1.24.4
-nvidia-cublas-cu11==11.11.3.6
-nvidia-cuda-cupti-cu11==11.8.87
-nvidia-cuda-nvrtc-cu11==11.8.89
-nvidia-cuda-runtime-cu11==11.8.89
-nvidia-cudnn-cu11==9.1.0.70
-nvidia-cufft-cu11==10.9.0.58
-nvidia-curand-cu11==10.3.0.86
-nvidia-cusolver-cu11==11.4.1.48
-nvidia-cusparse-cu11==11.7.5.86
-nvidia-nccl-cu11==2.20.5
-nvidia-nvtx-cu11==11.8.86
 opencv-python==4.12.0.88
 opencv-python-headless==4.12.0.88
 ordered-set==4.1.0
@@ -104,10 +93,10 @@ starsessions==1.3.0
 sympy==1.13.3
 tifffile==2023.7.10
 timm==0.9.16
-torch==2.4.1+cu118
-torchaudio==2.4.1+cu118
+torch==2.4.1
+torchaudio==2.4.1
 torchmetrics==1.5.2
-torchvision==0.19.1+cu118
+torchvision==0.19.1
 tqdm==4.67.1
 traitlets==5.14.3
 triton==3.0.0
@@ -122,3 +111,4 @@ websockets==11.0.3
 xmod==1.8.1
 yarl==1.15.2
 zipp==3.20.2
+

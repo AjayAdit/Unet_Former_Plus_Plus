@@ -67,7 +67,7 @@ python inference_unetformerpp.py
 
 ```bash
 conda env create -f environment.yml
-conda activate geoseg
+conda activate airs
 ```
 
 

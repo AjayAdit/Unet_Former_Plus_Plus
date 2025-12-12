@@ -28,7 +28,7 @@ cd Unet_Former-
 
 # 2. Setup environment
 conda env create -f environment.yml
-conda activate geoseg
+conda activate airs
 
 # 3. Train
 python GeoSeg/train_supervision.py -c GeoSeg/config/uavid/unetformerpp.py

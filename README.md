@@ -19,7 +19,7 @@
 
 ---
 
-![Final Output](GeoSeg/GeoSeg/annotely_unetformer++.png)
+![Final Output](GeoSeg/annotely_unetformer++.png)
 
 
 ## Quick Start

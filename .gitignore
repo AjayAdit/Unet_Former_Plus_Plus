@@ -1,24 +1,15 @@
-# Python cache
-__pycache__/
-*.pyc
-
-# Conda / venv junk
-.env
-.venv/
-*.log
-
-# Datasets and patches (they will re-create locally)
+# Large files - exclude
 data/
-UAVid_patches/
-extra_space/
-Downloads/
-
-# Training outputs
 lightning_logs/
 model_weights/
 fig_results/
 
-# Big model files just in case
-*.ckpt
-*.pth
-*.pt
+# Generated plots
+*.png
+*.pdf
+
+# Other
+*.xlsx
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

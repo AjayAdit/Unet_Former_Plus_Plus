@@ -1,27 +1,33 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange, repeat
+from einops import rearrange
 
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import timm
+from timm.models.layers import DropPath, trunc_normal_
+
+from geoseg.models.ecm import EarlyContextModule, ECMLight
 
 
 class ConvBNReLU(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, stride=1, norm_layer=nn.BatchNorm2d, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, stride=1,
+                 norm_layer=nn.BatchNorm2d, bias=False):
         super(ConvBNReLU, self).__init__(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, bias=bias,
-                      dilation=dilation, stride=stride, padding=((stride - 1) + dilation * (kernel_size - 1)) // 2),
+                      dilation=dilation, stride=stride,
+                      padding=((stride - 1) + dilation * (kernel_size - 1)) // 2),
             norm_layer(out_channels),
             nn.ReLU6()
         )
 
 
 class ConvBN(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, stride=1, norm_layer=nn.BatchNorm2d, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, stride=1,
+                 norm_layer=nn.BatchNorm2d, bias=False):
         super(ConvBN, self).__init__(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, bias=bias,
-                      dilation=dilation, stride=stride, padding=((stride - 1) + dilation * (kernel_size - 1)) // 2),
+                      dilation=dilation, stride=stride,
+                      padding=((stride - 1) + dilation * (kernel_size - 1)) // 2),
             norm_layer(out_channels)
         )
 
@@ -30,20 +36,8 @@ class Conv(nn.Sequential):
     def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, stride=1, bias=False):
         super(Conv, self).__init__(
             nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, bias=bias,
-                      dilation=dilation, stride=stride, padding=((stride - 1) + dilation * (kernel_size - 1)) // 2)
-        )
-
-
-class SeparableConvBNReLU(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, dilation=1,
-                 norm_layer=nn.BatchNorm2d):
-        super(SeparableConvBNReLU, self).__init__(
-            nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, dilation=dilation,
-                      padding=((stride - 1) + dilation * (kernel_size - 1)) // 2,
-                      groups=in_channels, bias=False),
-            norm_layer(out_channels),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False),
-            nn.ReLU6()
+                      dilation=dilation, stride=stride,
+                      padding=((stride - 1) + dilation * (kernel_size - 1)) // 2)
         )
 
 
@@ -59,18 +53,9 @@ class SeparableConvBN(nn.Sequential):
         )
 
 
-class SeparableConv(nn.Sequential):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, dilation=1):
-        super(SeparableConv, self).__init__(
-            nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, dilation=dilation,
-                      padding=((stride - 1) + dilation * (kernel_size - 1)) // 2,
-                      groups=in_channels, bias=False),
-            nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
-        )
-
-
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.ReLU6, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None,
+                 act_layer=nn.ReLU6, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -89,13 +74,8 @@ class Mlp(nn.Module):
 
 
 class GlobalLocalAttention(nn.Module):
-    def __init__(self,
-                 dim=256,
-                 num_heads=16,
-                 qkv_bias=False,
-                 window_size=8,
-                 relative_pos_embedding=True
-                 ):
+    def __init__(self, dim=256, num_heads=16, qkv_bias=False, window_size=8,
+                 relative_pos_embedding=True):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // self.num_heads
@@ -107,27 +87,27 @@ class GlobalLocalAttention(nn.Module):
         self.local2 = ConvBN(dim, dim, kernel_size=1)
         self.proj = SeparableConvBN(dim, dim, kernel_size=window_size)
 
-        self.attn_x = nn.AvgPool2d(kernel_size=(window_size, 1), stride=1,  padding=(window_size//2 - 1, 0))
-        self.attn_y = nn.AvgPool2d(kernel_size=(1, window_size), stride=1, padding=(0, window_size//2 - 1))
+        self.attn_x = nn.AvgPool2d(kernel_size=(window_size, 1), stride=1,
+                                    padding=(window_size//2 - 1, 0))
+        self.attn_y = nn.AvgPool2d(kernel_size=(1, window_size), stride=1,
+                                    padding=(0, window_size//2 - 1))
 
         self.relative_pos_embedding = relative_pos_embedding
 
         if self.relative_pos_embedding:
-            # define a parameter table of relative position bias
             self.relative_position_bias_table = nn.Parameter(
-                torch.zeros((2 * window_size - 1) * (2 * window_size - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+                torch.zeros((2 * window_size - 1) * (2 * window_size - 1), num_heads))
 
-            # get pair-wise relative position index for each token inside the window
             coords_h = torch.arange(self.ws)
             coords_w = torch.arange(self.ws)
-            coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
-            coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-            relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-            relative_coords[:, :, 0] += self.ws - 1  # shift to start from 0
+            coords = torch.stack(torch.meshgrid([coords_h, coords_w]))
+            coords_flatten = torch.flatten(coords, 1)
+            relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
+            relative_coords = relative_coords.permute(1, 2, 0).contiguous()
+            relative_coords[:, :, 0] += self.ws - 1
             relative_coords[:, :, 1] += self.ws - 1
             relative_coords[:, :, 0] *= 2 * self.ws - 1
-            relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
+            relative_position_index = relative_coords.sum(-1)
             self.register_buffer("relative_position_index", relative_position_index)
 
             trunc_normal_(self.relative_position_bias_table, std=.02)
@@ -153,22 +133,25 @@ class GlobalLocalAttention(nn.Module):
         B, C, Hp, Wp = x.shape
         qkv = self.qkv(x)
 
-        q, k, v = rearrange(qkv, 'b (qkv h d) (hh ws1) (ww ws2) -> qkv (b hh ww) h (ws1 ws2) d', h=self.num_heads,
-                            d=C//self.num_heads, hh=Hp//self.ws, ww=Wp//self.ws, qkv=3, ws1=self.ws, ws2=self.ws)
+        q, k, v = rearrange(qkv, 'b (qkv h d) (hh ws1) (ww ws2) -> qkv (b hh ww) h (ws1 ws2) d',
+                            h=self.num_heads, d=C//self.num_heads, hh=Hp//self.ws,
+                            ww=Wp//self.ws, qkv=3, ws1=self.ws, ws2=self.ws)
 
         dots = (q @ k.transpose(-2, -1)) * self.scale
 
         if self.relative_pos_embedding:
-            relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-                self.ws * self.ws, self.ws * self.ws, -1)  # Wh*Ww,Wh*Ww,nH
-            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+            relative_position_bias = self.relative_position_bias_table[
+                self.relative_position_index.view(-1)
+            ].view(self.ws * self.ws, self.ws * self.ws, -1)
+            relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
             dots += relative_position_bias.unsqueeze(0)
 
         attn = dots.softmax(dim=-1)
         attn = attn @ v
 
-        attn = rearrange(attn, '(b hh ww) h (ws1 ws2) d -> b (h d) (hh ws1) (ww ws2)', h=self.num_heads,
-                         d=C//self.num_heads, hh=Hp//self.ws, ww=Wp//self.ws, ws1=self.ws, ws2=self.ws)
+        attn = rearrange(attn, '(b hh ww) h (ws1 ws2) d -> b (h d) (hh ws1) (ww ws2)',
+                         h=self.num_heads, d=C//self.num_heads, hh=Hp//self.ws,
+                         ww=Wp//self.ws, ws1=self.ws, ws2=self.ws)
 
         attn = attn[:, :, :H, :W]
 
@@ -178,29 +161,29 @@ class GlobalLocalAttention(nn.Module):
         out = out + local
         out = self.pad_out(out)
         out = self.proj(out)
-        # print(out.size())
         out = out[:, :, :H, :W]
 
         return out
 
 
 class Block(nn.Module):
-    def __init__(self, dim=256, num_heads=16,  mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.ReLU6, norm_layer=nn.BatchNorm2d, window_size=8):
+    def __init__(self, dim=256, num_heads=16, mlp_ratio=4., qkv_bias=False, drop=0.,
+                 attn_drop=0., drop_path=0., act_layer=nn.ReLU6, norm_layer=nn.BatchNorm2d,
+                 window_size=8):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = GlobalLocalAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, window_size=window_size)
+        self.attn = GlobalLocalAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias,
+                                          window_size=window_size)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, out_features=dim, act_layer=act_layer, drop=drop)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, out_features=dim,
+                       act_layer=act_layer, drop=drop)
         self.norm2 = norm_layer(dim)
 
     def forward(self, x):
-
         x = x + self.drop_path(self.attn(self.norm1(x)))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-
         return x
 
 
@@ -208,7 +191,6 @@ class WF(nn.Module):
     def __init__(self, in_channels=128, decode_channels=128, eps=1e-8):
         super(WF, self).__init__()
         self.pre_conv = Conv(in_channels, decode_channels, kernel_size=1)
-
         self.weights = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
         self.eps = eps
         self.post_conv = ConvBNReLU(decode_channels, decode_channels, kernel_size=3)
@@ -226,18 +208,21 @@ class FeatureRefinementHead(nn.Module):
     def __init__(self, in_channels=64, decode_channels=64):
         super().__init__()
         self.pre_conv = Conv(in_channels, decode_channels, kernel_size=1)
-
         self.weights = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
         self.eps = 1e-8
         self.post_conv = ConvBNReLU(decode_channels, decode_channels, kernel_size=3)
 
-        self.pa = nn.Sequential(nn.Conv2d(decode_channels, decode_channels, kernel_size=3, padding=1, groups=decode_channels),
-                                nn.Sigmoid())
-        self.ca = nn.Sequential(nn.AdaptiveAvgPool2d(1),
-                                Conv(decode_channels, decode_channels//16, kernel_size=1),
-                                nn.ReLU6(),
-                                Conv(decode_channels//16, decode_channels, kernel_size=1),
-                                nn.Sigmoid())
+        self.pa = nn.Sequential(
+            nn.Conv2d(decode_channels, decode_channels, kernel_size=3, padding=1, groups=decode_channels),
+            nn.Sigmoid()
+        )
+        self.ca = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            Conv(decode_channels, decode_channels//16, kernel_size=1),
+            nn.ReLU6(),
+            Conv(decode_channels//16, decode_channels, kernel_size=1),
+            nn.Sigmoid()
+        )
 
         self.shortcut = ConvBN(decode_channels, decode_channels, kernel_size=1)
         self.proj = SeparableConvBN(decode_channels, decode_channels, kernel_size=3)
@@ -255,12 +240,10 @@ class FeatureRefinementHead(nn.Module):
         x = pa + ca
         x = self.proj(x) + shortcut
         x = self.act(x)
-
         return x
 
 
 class AuxHead(nn.Module):
-
     def __init__(self, in_channels=64, num_classes=8):
         super().__init__()
         self.conv = ConvBNReLU(in_channels, in_channels)
@@ -276,12 +259,8 @@ class AuxHead(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self,
-                 encoder_channels=(64, 128, 256, 512),
-                 decode_channels=64,
-                 dropout=0.1,
-                 window_size=8,
-                 num_classes=6):
+    def __init__(self, encoder_channels=(64, 128, 256, 512), decode_channels=64,
+                 dropout=0.1, window_size=8, num_classes=6):
         super(Decoder, self).__init__()
 
         self.pre_conv = ConvBN(encoder_channels[-1], decode_channels, kernel_size=1)
@@ -293,52 +272,39 @@ class Decoder(nn.Module):
         self.b2 = Block(dim=decode_channels, num_heads=8, window_size=window_size)
         self.p2 = WF(encoder_channels[-3], decode_channels)
 
-        if self.training:
-            self.up4 = nn.UpsamplingBilinear2d(scale_factor=4)
-            self.up3 = nn.UpsamplingBilinear2d(scale_factor=2)
-            self.aux_head = AuxHead(decode_channels, num_classes)
+        self.up4 = nn.UpsamplingBilinear2d(scale_factor=4)
+        self.up3 = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.aux_head = AuxHead(decode_channels, num_classes)
 
         self.p1 = FeatureRefinementHead(encoder_channels[-4], decode_channels)
 
-        self.segmentation_head = nn.Sequential(ConvBNReLU(decode_channels, decode_channels),
-                                               nn.Dropout2d(p=dropout, inplace=True),
-                                               Conv(decode_channels, num_classes, kernel_size=1))
+        self.segmentation_head = nn.Sequential(
+            ConvBNReLU(decode_channels, decode_channels),
+            nn.Dropout2d(p=dropout, inplace=True),
+            Conv(decode_channels, num_classes, kernel_size=1)
+        )
         self.init_weight()
 
     def forward(self, res1, res2, res3, res4, h, w):
-        if self.training:
-            x = self.b4(self.pre_conv(res4))
-            h4 = self.up4(x)
+        x = self.b4(self.pre_conv(res4))
+        h4 = self.up4(x)
 
-            x = self.p3(x, res3)
-            x = self.b3(x)
-            h3 = self.up3(x)
+        x = self.p3(x, res3)
+        x = self.b3(x)
+        h3 = self.up3(x)
 
-            x = self.p2(x, res2)
-            x = self.b2(x)
-            h2 = x
-            x = self.p1(x, res1)
-            x = self.segmentation_head(x)
-            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=False)
+        x = self.p2(x, res2)
+        x = self.b2(x)
+        h2 = x
 
-            ah = h4 + h3 + h2
-            ah = self.aux_head(ah, h, w)
+        x = self.p1(x, res1)
+        x = self.segmentation_head(x)
+        x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=False)
 
-            return x, ah
-        else:
-            x = self.b4(self.pre_conv(res4))
-            x = self.p3(x, res3)
-            x = self.b3(x)
+        ah = h4 + h3 + h2
+        ah = self.aux_head(ah, h, w)
 
-            x = self.p2(x, res2)
-            x = self.b2(x)
-
-            x = self.p1(x, res1)
-
-            x = self.segmentation_head(x)
-            x = F.interpolate(x, size=(h, w), mode='bilinear', align_corners=False)
-
-            return x
+        return x, ah
 
     def init_weight(self):
         for m in self.children():
@@ -348,29 +314,127 @@ class Decoder(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
 
-class UNetFormer(nn.Module):
-    def __init__(self,
-                 decode_channels=64,
-                 dropout=0.1,
-                 backbone_name='swsl_resnet18',
-                 pretrained=True,
-                 window_size=8,
-                 num_classes=6
-                 ):
+class UNetFormerPP(nn.Module):
+    def __init__(
+        self,
+        decode_channels=64,
+        dropout=0.1,
+        backbone_name='swsl_resnet18',
+        pretrained=True,
+        window_size=8,
+        num_classes=8,
+        use_ecm=True,
+        ecm_stages=(3, 4),
+        ecm_compression_ratio=4,
+        ecm_num_heads=4,
+        ecm_window_size=8,
+        ecm_light=False
+    ):
         super().__init__()
 
-        self.backbone = timm.create_model(backbone_name, features_only=True, output_stride=32,
-                                          out_indices=(1, 2, 3, 4), pretrained=pretrained)
+        self.use_ecm = use_ecm
+        self.ecm_stages = ecm_stages
+
+        self.backbone = timm.create_model(
+            backbone_name,
+            features_only=True,
+            output_stride=32,
+            out_indices=(1, 2, 3, 4),
+            pretrained=pretrained
+        )
         encoder_channels = self.backbone.feature_info.channels()
 
-        self.decoder = Decoder(encoder_channels, decode_channels, dropout, window_size, num_classes)
+        if use_ecm:
+            self.ecm_modules = nn.ModuleDict()
+            ECMClass = ECMLight if ecm_light else EarlyContextModule
+
+            for stage in ecm_stages:
+                stage_idx = stage - 1
+                if 0 <= stage_idx < len(encoder_channels):
+                    self.ecm_modules[f'ecm_{stage}'] = ECMClass(
+                        in_channels=encoder_channels[stage_idx],
+                        compression_ratio=ecm_compression_ratio,
+                        num_heads=ecm_num_heads,
+                        window_size=ecm_window_size
+                    )
+
+        self.decoder = Decoder(
+            encoder_channels,
+            decode_channels,
+            dropout,
+            window_size,
+            num_classes
+        )
 
     def forward(self, x):
         h, w = x.size()[-2:]
+
         res1, res2, res3, res4 = self.backbone(x)
+
+        if self.use_ecm:
+            features = [res1, res2, res3, res4]
+            for stage in self.ecm_stages:
+                stage_idx = stage - 1
+                if f'ecm_{stage}' in self.ecm_modules:
+                    features[stage_idx] = self.ecm_modules[f'ecm_{stage}'](features[stage_idx])
+            res1, res2, res3, res4 = features
+
+        x, ah = self.decoder(res1, res2, res3, res4, h, w)
+
         if self.training:
-            x, ah = self.decoder(res1, res2, res3, res4, h, w)
             return x, ah
         else:
-            x = self.decoder(res1, res2, res3, res4, h, w)
             return x
+
+
+def UNetFormerPP_R18(num_classes=8, pretrained=True):
+    return UNetFormerPP(
+        backbone_name='swsl_resnet18',
+        num_classes=num_classes,
+        pretrained=pretrained,
+        use_ecm=True,
+        ecm_stages=(3, 4)
+    )
+
+
+def UNetFormerPP_R18_NoECM(num_classes=8, pretrained=True):
+    return UNetFormerPP(
+        backbone_name='swsl_resnet18',
+        num_classes=num_classes,
+        pretrained=pretrained,
+        use_ecm=False
+    )
+
+
+def UNetFormerPP_R18_Light(num_classes=8, pretrained=True):
+    return UNetFormerPP(
+        backbone_name='swsl_resnet18',
+        num_classes=num_classes,
+        pretrained=pretrained,
+        use_ecm=True,
+        ecm_stages=(3, 4),
+        ecm_light=True
+    )
+
+
+if __name__ == "__main__":
+    model = UNetFormerPP(num_classes=8)
+    x = torch.randn(2, 3, 1024, 1024)
+
+    model.train()
+    out, aux = model(x)
+    print(f"Training mode:")
+    print(f"  Input:  {x.shape}")
+    print(f"  Output: {out.shape}")
+    print(f"  Aux:    {aux.shape}")
+
+    model.eval()
+    with torch.no_grad():
+        out = model(x)
+    print(f"Eval mode:")
+    print(f"  Input:  {x.shape}")
+    print(f"  Output: {out.shape}")
+
+    params = sum(p.numel() for p in model.parameters())
+    print(f"Parameters: {params:,}")
+

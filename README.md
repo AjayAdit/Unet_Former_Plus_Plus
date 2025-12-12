@@ -6,7 +6,7 @@
 
 > **Achieving 70% mIoU on UAVid Dataset with Early Context Injection**
 
-![Comparison](assets/comparison_grid.png)
+
 
 ---
 
@@ -70,17 +70,11 @@ conda env create -f environment.yml
 conda activate geoseg
 ```
 
-### Option B: Pip
 
-```bash
-pip install -r requirements.txt
-```
-
----
 
 ## Dataset Setup
 
-1. Download [UAVid Dataset](https://uavid.nl/)
+1. Download [UAVid Dataset](https://phys-techsciences.datastations.nl/dataset.xhtml?persistentId=doi:10.17026/dans-x9f-w9sa)
 
 2. Organize as:
 
@@ -190,18 +184,7 @@ weight_decay = 0.05
 
 ---
 
-## Troubleshooting
 
-**CUDA Out of Memory:**
-```python
-# Reduce batch size in config
-batch_size = 1
-```
-
-**Module Not Found:**
-```bash
-export PYTHONPATH="${PYTHONPATH}:$(pwd)/GeoSeg"
-```
 
 ---
 
